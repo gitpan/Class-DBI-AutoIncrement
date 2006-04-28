@@ -2,7 +2,7 @@
 #
 #   Class::DBI::AutoIncrement - Emulate auto-incrementing columns in a Class::DBI table
 #
-#   $Id: AutoIncrement.pm,v 1.1.1.1 2006/04/28 13:58:15 erwan Exp $
+#   $Id: AutoIncrement.pm,v 1.2 2006/04/28 19:28:52 erwan Exp $
 #
 #   060412 erwan Created
 #
@@ -71,7 +71,7 @@ sub next {
         }
 
         my($id) = @$res;
-	
+
 	if (defined $id) {
 	    $index = $id + $self->step;
 	} else {
@@ -88,7 +88,7 @@ sub next {
         $self->index($self->step+$self->index);
 	$index = $self->index;
     }
-    
+
     return $index;
 }
 
@@ -107,7 +107,7 @@ use strict;
 use warnings;
 use Carp qw(croak confess);
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
 # set at runtime by _set_inheritance()
 our @ISA;
@@ -279,11 +279,11 @@ __END__
 
 =head1 NAME
 
-Class::DBI::AutoIncrement - Emulate auto-incrementing columns in a Class::DBI table
+Class::DBI::AutoIncrement - Emulate auto-incrementing columns on Class::DBI subclasses
 
 =head1 VERSION
 
-$Id: AutoIncrement.pm,v 1.1.1.1 2006/04/28 13:58:15 erwan Exp $
+$Id: AutoIncrement.pm,v 1.2 2006/04/28 19:28:52 erwan Exp $
 
 =head1 SYNOPSIS
 
@@ -312,11 +312,13 @@ C<insert()>:
     MyProject::Book->table(Others => qw(author title isbn));
     MyProject::Book->autoincrement('seqid');
 
-Now when you call:
+From now on, when you call:
 
     my $book = Book->insert({author => 'me', title => 'my life'});
 
-I<$book> gets its seqid field automagically set to the next allowed value.
+I<$book> gets its seqid field automagically set the next available value for
+that column. If you had 3 rows in the table 'book' having seqids 1, 2 and 3, this
+new inserted row will get the seqid 4 (assuming a default setup).
 
 That's it!
 
@@ -331,17 +333,21 @@ do have. Class::DBI::AutoIncrement provides an emulation layer that automagicall
 sets a specified column to its next index value when the Class::DBI method
 C<insert> is called.
 
-The name of the column that should be auto-incremented automagically
-is provided via the class method C<autoincrement>, together with 
-parameters on how to calculate this value.
+Class::DBI::AutoIncrement does that by querying the table for the current
+highest value of the column, upon each call to C<insert> (or only once if
+caching is on). You can also specify the increment step and start value of
+the sequence.
 
-At most one column can be auto-incremented for a given table.
+No more than one column per table can be auto-incremented.
 
 =head1 INTERFACE
 
-The child class of Class::DBI that wants to have an auto-incremented column
-must inherit from Class::DBI::AutoIncrement. Furthermore, Class::DBI::AutoIncrement
-must be the first parent class in its @ISA array.
+A child class of Class::DBI that describes a table with 1 auto-incremented
+column must inherit from Class::DBI::AutoIncrement, and Class::DBI::AutoIncrement
+must be its first parent class in its @ISA array. The inheritance declaration should
+look like:
+
+    package ChildOfClassDBI;
 
     use base qw(Class::DBI::AutoIncrement Some Other Classes);
 
@@ -362,7 +368,7 @@ I<$min> is the sequence's start value. If I<$min> is not defined, 0 is assumed a
 
 I<$step> is the step of increment. If not defined, a step of 1 is assumed.
 
-Exemple:
+Example:
 
     # seqid is automatically incremented by 1 at each insert, starting at 1
     MyProject::Book->autoincrement('seqid', Min => 1);    
@@ -446,8 +452,8 @@ the computation of the next sequence index completly or do it all by yourself,
 but do not mix both ways or you will get weird results. Really.
 
 Fetching the current highest value of the sequence from the database
-and inserting a new row is not done atomically. You might get race
-conditions if multiple threads are sharing the same table.
+and inserting a new row is not done atomically. You will get race
+conditions if multiple threads are inserting into the same table.
 
 =head1 SEE ALSO
 
