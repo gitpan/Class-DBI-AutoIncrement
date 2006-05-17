@@ -2,9 +2,10 @@
 #
 #   Class::DBI::AutoIncrement - Emulate auto-incrementing columns in a Class::DBI table
 #
-#   $Id: AutoIncrement.pm,v 1.2 2006/04/28 19:28:52 erwan Exp $
+#   $Id: AutoIncrement.pm,v 1.3 2006/05/17 20:44:06 erwan Exp $
 #
 #   060412 erwan Created
+#   060517 erwan Added croak when no other parent than Class::DBI::AutoIncrement
 #
 #################################################################
 
@@ -107,7 +108,7 @@ use strict;
 use warnings;
 use Carp qw(croak confess);
 
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 
 # set at runtime by _set_inheritance()
 our @ISA;
@@ -132,6 +133,8 @@ sub _set_inheritance {
     my($caller) = shift;
     no strict 'refs';
     my @parents = grep { $_ ne __PACKAGE__ } @{"$caller\::ISA"};
+
+    croak __PACKAGE__." expects class $caller to inherit from at least 1 more parent class" if (scalar @parents == 0);
 
     # inherit from same parents as the calling class, this in order
     # to have the proper inheritance toward the local *::DBI class,
@@ -283,7 +286,7 @@ Class::DBI::AutoIncrement - Emulate auto-incrementing columns on Class::DBI subc
 
 =head1 VERSION
 
-$Id: AutoIncrement.pm,v 1.2 2006/04/28 19:28:52 erwan Exp $
+$Id: AutoIncrement.pm,v 1.3 2006/05/17 20:44:06 erwan Exp $
 
 =head1 SYNOPSIS
 
