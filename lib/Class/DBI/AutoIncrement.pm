@@ -2,10 +2,11 @@
 #
 #   Class::DBI::AutoIncrement - Emulate auto-incrementing columns in a Class::DBI table
 #
-#   $Id: AutoIncrement.pm,v 1.3 2006/05/17 20:44:06 erwan Exp $
+#   $Id: AutoIncrement.pm,v 1.4 2006/06/07 09:04:22 erwan Exp $
 #
 #   060412 erwan Created
 #   060517 erwan Added croak when no other parent than Class::DBI::AutoIncrement
+#   060607 erwan Fixed rt 19752, backward compatibility issue with create()
 #
 #################################################################
 
@@ -108,7 +109,7 @@ use strict;
 use warnings;
 use Carp qw(croak confess);
 
-our $VERSION = '0.03';
+our $VERSION = '0.04';
 
 # set at runtime by _set_inheritance()
 our @ISA;
@@ -244,12 +245,28 @@ sub table {
 
 #-----------------------------------------------------------------
 #
-#   insert - insert a new value, after setting its id if necessary
+#   insert - insert a new value, after incrementing its sequence if necessary
 #
 
 sub insert {
     my($proto,$values) = @_;
     my $class = ref $proto || $proto;
+    _do_increment($class,$values);
+    return $class->SUPER::insert($values);
+}
+
+# backward compatibility
+sub create {
+    my($proto,$values) = @_;
+    my $class = ref $proto || $proto;
+    _do_increment($class,$values);
+    return $class->SUPER::create($values);
+}
+
+# increment sequence if needed
+sub _do_increment {
+    my($class,$values) = @_;
+
     _set_inheritance($class);
 
     my $info = _get_descriptor($class);
@@ -269,12 +286,7 @@ sub insert {
     if (!exists $values->{$column} || !defined $values->{$column}) {
         $values->{$column} = $info->next;
     }
-
-    return $class->SUPER::insert($values);
 }
-
-# backward compatibility
-*create = \&insert;
 
 1;
 
@@ -286,7 +298,7 @@ Class::DBI::AutoIncrement - Emulate auto-incrementing columns on Class::DBI subc
 
 =head1 VERSION
 
-$Id: AutoIncrement.pm,v 1.3 2006/05/17 20:44:06 erwan Exp $
+$Id: AutoIncrement.pm,v 1.4 2006/06/07 09:04:22 erwan Exp $
 
 =head1 SYNOPSIS
 
@@ -457,6 +469,11 @@ but do not mix both ways or you will get weird results. Really.
 Fetching the current highest value of the sequence from the database
 and inserting a new row is not done atomically. You will get race
 conditions if multiple threads are inserting into the same table.
+
+=head1 THANKS
+
+Big thanks to David Westbrook for providing me with exemplar
+bug reports and usefull feedback!
 
 =head1 SEE ALSO
 

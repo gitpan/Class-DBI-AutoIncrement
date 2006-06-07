@@ -8,3 +8,7 @@ Revision history for Perl extension Class::DBI::AutoIncrement
 
 0.03 2006-05-17
 	- croak when calling class does not subclass Class::DBI
+
+0.04 2006-06-07
+        - fix rt 19752, backward compatibility issue with create()
+
