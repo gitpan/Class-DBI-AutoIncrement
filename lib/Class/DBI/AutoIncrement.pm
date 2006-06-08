@@ -2,11 +2,12 @@
 #
 #   Class::DBI::AutoIncrement - Emulate auto-incrementing columns in a Class::DBI table
 #
-#   $Id: AutoIncrement.pm,v 1.4 2006/06/07 09:04:22 erwan Exp $
+#   $Id: AutoIncrement.pm,v 1.7 2006/06/08 08:58:32 erwan Exp $
 #
 #   060412 erwan Created
 #   060517 erwan Added croak when no other parent than Class::DBI::AutoIncrement
 #   060607 erwan Fixed rt 19752, backward compatibility issue with create()
+#   060607 erwan Refactor to use maximum_value_of() (credits to David Westbrook)
 #
 #################################################################
 
@@ -22,7 +23,6 @@ package Class::DBI::AutoIncrement::Descriptor;
 use 5.006;
 use strict;
 use warnings;
-use Carp qw(croak confess);
 use base qw(Class::Accessor);
 
 Class::Accessor->mk_accessors('table',  # name of the table to auto-increment
@@ -33,66 +33,7 @@ Class::Accessor->mk_accessors('table',  # name of the table to auto-increment
 			      'index',  # value of the index used at the last insert (if caching is on)
 			      );
 
-#-----------------------------------------------------------------
-#
-#   new - constructor
-#
-
-sub new {
-   return bless({},__PACKAGE__);
-}
-
-#-----------------------------------------------------------------
-#
-#   next - get (compute) the value of the next index for this table
-#
-
-sub next {
-    my $self = shift;
-    my $index;
-
-    if (!defined $self->index) {
-        # fetch the current value of the index from the database
-        my @handles = Class::DBI::AutoIncrement->db_handles(); # Class::DBI::AutoIncrement should inherit from Class::DBI
-        my $dbc = shift @handles;
-        my $sql = "SELECT MAX(".$self->column.") FROM ".$self->table;
-        my $rs = $dbc->prepare($sql);
-
-        if (!$rs || $rs->err) {
-            confess "ERROR: 'prepare' failed for query [$sql]: ".$dbc->errstr;
-        }
-
-        if (!$rs->execute()) {
-            confess "ERROR: 'execute' failed for query [$sql]: ".$rs->errstr;
-        }
-
-        my $res = $rs->fetchrow_arrayref;
-
-        if ($rs->err) {
-            confess "ERROR: 'fetchrow_arrayref' failed: ".$rs->errstr;
-        }
-
-        my($id) = @$res;
-
-	if (defined $id) {
-	    $index = $id + $self->step;
-	} else {
-	    # table is empty, this will be the first row inserted
-	    $index = $self->min;
-	}
-
-	# if caching is on, save the index for next time we need it
-	if ($self->cache) {
-	    $self->index($index);
-	}
-    } else {
-	# we are caching the index, and we know the current highest index
-        $self->index($self->step+$self->index);
-	$index = $self->index;
-    }
-
-    return $index;
-}
+sub new { return bless({},__PACKAGE__); }
 
 1;
 
@@ -109,7 +50,7 @@ use strict;
 use warnings;
 use Carp qw(croak confess);
 
-our $VERSION = '0.04';
+our $VERSION = '0.05';
 
 # set at runtime by _set_inheritance()
 our @ISA;
@@ -133,10 +74,10 @@ sub _set_inheritance {
 
     my($caller) = shift;
     no strict 'refs';
+
     my @parents = grep { $_ ne __PACKAGE__ } @{"$caller\::ISA"};
-
     croak __PACKAGE__." expects class $caller to inherit from at least 1 more parent class" if (scalar @parents == 0);
-
+    
     # inherit from same parents as the calling class, this in order
     # to have the proper inheritance toward the local *::DBI class,
     # without having to know its name and explicitly 'use base' it
@@ -167,9 +108,61 @@ my $descriptors;
 sub _get_descriptor {
     my $class = shift;
     if (!exists $descriptors->{$class}) {
-        $descriptors->{$class} = new Class::DBI::AutoIncrement::Descriptor();
+        $descriptors->{$class} = new Class::DBI::AutoIncrement::Descriptor($class);
     }
     return $descriptors->{$class};
+}
+
+#-----------------------------------------------------------------
+#
+#   _do_increment - increment sequence if needed, see insert() and create()
+#
+
+sub _do_increment {
+    my($proto,$class,$values) = @_;
+
+    _set_inheritance($class);
+
+    my $info = _get_descriptor($class);
+
+    # check that we know all that should be known (column name, table name...)
+    if (!defined $info->column) {
+        croak "no auto-incremented column has been specified for class $class.";
+    }
+
+    if (!defined $info->table) {
+        croak "no database table has been specified for class $class.";
+    }
+
+    my $column = $info->column;
+
+    # if the index column is not set, set it to its next known value
+    if (!exists $values->{$column} || !defined $values->{$column}) {
+	my $index;
+
+	if (!defined $info->index) {
+	    
+	    my $id = $proto->maximum_value_of($info->column);
+	    
+	    if (defined $id) {
+		$index = $id + $info->step;
+	    } else {
+		# table is empty, this will be the first row inserted
+		$index = $info->min;
+	    }
+
+	    # if caching is on, save the index for next time we need it
+	    if ($info->cache) {
+		$info->index($index);
+	    }
+	} else {
+	    # we are caching the index, and we know the current highest index
+	    $info->index($info->step+$info->index);
+	    $index = $info->index;
+	}
+
+        $values->{$column} = $index;
+    }
 }
 
 ##################################################################
@@ -251,7 +244,7 @@ sub table {
 sub insert {
     my($proto,$values) = @_;
     my $class = ref $proto || $proto;
-    _do_increment($class,$values);
+    _do_increment($proto,$class,$values);
     return $class->SUPER::insert($values);
 }
 
@@ -259,33 +252,8 @@ sub insert {
 sub create {
     my($proto,$values) = @_;
     my $class = ref $proto || $proto;
-    _do_increment($class,$values);
+    _do_increment($proto,$class,$values);
     return $class->SUPER::create($values);
-}
-
-# increment sequence if needed
-sub _do_increment {
-    my($class,$values) = @_;
-
-    _set_inheritance($class);
-
-    my $info = _get_descriptor($class);
-
-    # check that we know all that should be known (column name, table name...)
-    if (!defined $info->column) {
-        croak "no auto-incremented column has been specified for class $class.";
-    }
-
-    if (!defined $info->table) {
-        croak "no database table has been specified for class $class.";
-    }
-
-    my $column = $info->column;
-
-    # if the index column is not set, set it to its next known value
-    if (!exists $values->{$column} || !defined $values->{$column}) {
-        $values->{$column} = $info->next;
-    }
 }
 
 1;
@@ -298,7 +266,7 @@ Class::DBI::AutoIncrement - Emulate auto-incrementing columns on Class::DBI subc
 
 =head1 VERSION
 
-$Id: AutoIncrement.pm,v 1.4 2006/06/07 09:04:22 erwan Exp $
+$Id: AutoIncrement.pm,v 1.7 2006/06/08 08:58:32 erwan Exp $
 
 =head1 SYNOPSIS
 
@@ -331,7 +299,7 @@ From now on, when you call:
 
     my $book = Book->insert({author => 'me', title => 'my life'});
 
-I<$book> gets its seqid field automagically set the next available value for
+I<$book> gets its seqid field automagically set to the next available value for
 that column. If you had 3 rows in the table 'book' having seqids 1, 2 and 3, this
 new inserted row will get the seqid 4 (assuming a default setup).
 
@@ -437,22 +405,14 @@ You most likely tried to call 'insert' without having first called 'autoincremen
 
 You most likely tried to call 'insert' without having first called the Class::DBI methods 'table'.
 
-=item "ERROR: 'prepare' failed for query [$sql]: ..."
-
-A database error occured when trying to select the maximum value of the auto-incremented
-column in the database.
-
-=item "ERROR: 'execute' failed for query [$sql]: ..."
-
-Same as above.
-
-=item "ERROR: 'fetchrow_arrayref' failed: ..."
-
-Same as above.
-
 =item "BUG: 'require <class>' failed because of: ..."
 
 Class::DBI::AutoIncrement failed to find the package <class> in @INC.
+
+=item "Class::DBI::AutoIncrement expects class $caller to inherit from at least 1 more parent class"
+
+A child class of Class::DBI::AutoIncrement must inherit from at least Class::DBI::AutoIncrement and an other class that subclasses Class::DBI 
+(or Class::DBI itself).
 
 =back
 
@@ -473,11 +433,14 @@ conditions if multiple threads are inserting into the same table.
 =head1 THANKS
 
 Big thanks to David Westbrook for providing me with exemplar
-bug reports and usefull feedback!
+bug reports and usefull inspiration!
 
 =head1 SEE ALSO
 
 See Class::DBI.
+
+See Class::DBI::AutoIncrement::Simple for a simpler alternative that should fit
+most of your needs.
 
 =head1 COPYRIGHT AND LICENSE
 

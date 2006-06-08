@@ -12,3 +12,7 @@ Revision history for Perl extension Class::DBI::AutoIncrement
 0.04 2006-06-07
         - fix rt 19752, backward compatibility issue with create()
 
+0.05 2006-06-08
+        - refactored to use Class::DBI's maximum_value_of() instead 
+          of a raw SQL select query
+        - fix rt 19753, undefined $dbc

@@ -1,6 +1,6 @@
 #################################################################
 #
-#   $Id: 07_test_errors.t,v 1.1 2006/05/17 20:39:46 erwan Exp $
+#   $Id: 07_test_errors.t,v 1.2 2006/06/08 08:58:32 erwan Exp $
 #
 
 use strict;
@@ -21,7 +21,7 @@ BEGIN {
 };
 
 eval { require MockDB::Invalid; };
-ok($@ =~ /expects class MockDB::Invalid to inherit/,"child class with only 1 parent croaks");
+ok($@ =~ /expects class MockDB::Invalid to inherit from at least 1 more parent/,"child class with only 1 parent croaks");
 
 
 
